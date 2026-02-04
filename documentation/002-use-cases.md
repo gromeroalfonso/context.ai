@@ -26,7 +26,7 @@ flowchart TB
 
     Admin((Administrador))
     User((Empleado))
-    AI[fa:fa-robot Sistema de IA]
+    AI[Sistema de IA]
 
     Admin --> UC1 & UC2 & UC3 & UC4
     User --> UC5 & UC6 & UC7
@@ -35,8 +35,11 @@ flowchart TB
     UC3 <--> |Gen. Audio/Video| AI
     UC5 <--> |Retrieval & Gen| AI
     UC4 <--> |Análisis de Sentimiento| AI
+```
 
-3. Descripción de Casos de Uso Clave
+---
+
+### 3. Descripción de Casos de Uso Clave
 
 UC1 - Gestionar Sectores y Roles:
 Aislamiento de la Información: Permite crear compartimentos para los distintos departamentos de tu startup (RRHH, Tech, Ventas, etc.).

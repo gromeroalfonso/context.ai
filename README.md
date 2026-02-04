@@ -37,33 +37,6 @@ Para garantizar la escalabilidad, mantenibilidad y robustez, se ha seleccionado 
 
 ---
 
-🛠️ Stack Tecnológico:  
-TODO
-Backend (Core de Inteligencia)
-
-Framework: NestJS con TypeScript (Node.js 22+).
-Arquitectura: Clean Architecture y DDD (Domain-Driven Design).
-Orquestación IA: Google Genkit para flujos agénticos y Tool Calling.
-Base de Datos: PostgreSQL con pgvector para almacenamiento de embeddings.
-Observabilidad: Sentry para monitorización de errores y rendimiento.
-
-Frontend (Experiencia de Usuario)
-
-Framework: Next.js (App Router).
-Estilos: Tailwind CSS para una interfaz profesional y rápida.
-Calidad: Optimización enfocada en Core Web Vitals.
-
-
----
-
-## 📂 Estructura del Proyecto 
-
-El código se organiza en dos aplicaciones principales para separar responsabilidades y facilitar el despliegue independiente. Sigue los principios de **Arquitectura Hexagonal** y **Domain-Driven Design (DDD)**:
-
-TODO
-
----
-
 🧪 Calidad, Seguridad y CI/CD
 
 GitHub Actions: Automatización de tests y despliegue continuo.
