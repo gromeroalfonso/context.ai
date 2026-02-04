@@ -219,8 +219,10 @@ context-ai-api/
 - **Data Fetching**: TanStack Query (React Query)
 - **HTTP Client**: Fetch API (nativo)
 - **Autenticación**: Auth0 Next.js SDK (cookies HttpOnly)
-- **UI Components**: shadcn/ui + Lucide Icons
-- **Testing**: Vitest + Testing Library
+- **UI Components**: shadcn/ui + Lucide Icons + Playwright
+- **Calidad**: ESLint + SonarJS + jsx-a11y
+- **Observabilidad**: Sentry
+- **Git Hooks**: Husky
 
 **Estructura de Proyecto**:
 
