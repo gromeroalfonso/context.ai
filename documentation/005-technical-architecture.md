@@ -247,6 +247,10 @@ context-ai-api/
 │   │   ├── decorators/
 │   │   ├── genkit/
 │   │   │   ├── genkit.config.ts
+│   │   │   ├── evaluators/
+│   │   │   │   ├── evaluation.types.ts        # Tipos Zod y interfaces de evaluación
+│   │   │   │   ├── rag-evaluator.service.ts   # LLM-as-judge (Faithfulness + Relevancy)
+│   │   │   │   └── index.ts
 │   │   │   └── flows/
 │   │   │       └── rag-query.flow.ts
 │   │   ├── prompts/
@@ -438,12 +442,17 @@ context-ai-front/
 **Flujo RAG** (implementado en `rag-query.flow.ts` con Genkit):
 1. Recibir consulta del usuario
 2. Generar embedding de la consulta con `gemini-embedding-001`
-3. Búsqueda semántica en **Pinecone** (filtrada por sectorId)
-4. Recuperar los 5 fragmentos más relevantes
+3. Búsqueda semántica en **Pinecone** (filtrada por sectorId namespace)
+4. Filtrar fragmentos por umbral de similitud (default: 0.7)
 5. Construir prompt con contexto (vía `PromptService` con templates)
-6. Generar respuesta con **Gemini 2.5 Flash**
-7. Evaluar respuesta con Genkit Evaluators (Faithfulness, Relevancy)
-8. Retornar respuesta con fuentes citadas y metadatos de evaluación
+6. Generar respuesta con **Gemini 2.5 Flash** (temperatura 0.3 para factualidad)
+7. **Evaluar respuesta con `RagEvaluatorService`** (LLM-as-judge):
+   - Faithfulness y Relevancy evaluados en paralelo (`Promise.all`)
+   - Mismo modelo Gemini 2.5 Flash con temperatura 0.1 (baja, para consistencia)
+   - Scores validados con Zod schema (0-1, PASS/FAIL/UNKNOWN, reasoning)
+   - Degradación elegante: si la evaluación falla, `status: UNKNOWN` sin bloquear respuesta
+8. Almacenar scores de evaluación en `message.metadata` del mensaje del asistente
+9. Retornar respuesta con fuentes citadas, metadatos y evaluación (`evaluation` en DTO)
 
 **Módulo**: `InteractionModule`
 
@@ -612,6 +621,7 @@ graph LR
     
     InteractionModule --> QueryAssistantUseCase
     InteractionModule --> RAGQueryFlow
+    InteractionModule --> RagEvaluatorService
     InteractionModule --> PromptService
     
     AuditModule --> AuditService

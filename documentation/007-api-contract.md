@@ -417,17 +417,43 @@ Content-Type: application/json
       "metadata": { "position": 5 }
     }
   ],
-  "timestamp": "2026-02-03T15:01:02Z"
+  "timestamp": "2026-02-03T15:01:02Z",
+  "evaluation": {
+    "faithfulness": {
+      "score": 0.92,
+      "status": "PASS",
+      "reasoning": "The response accurately reflects the vacation policy documented in the context."
+    },
+    "relevancy": {
+      "score": 0.88,
+      "status": "PASS",
+      "reasoning": "The response directly answers the question about vacation days."
+    }
+  }
 }
 ```
 
 **Response DTO** (`QueryAssistantResponseDto`):
+| Campo | Tipo | Obligatorio | Descripción |
+|-------|------|-------------|-------------|
+| `response` | String | ✅ | Respuesta generada por el asistente |
+| `conversationId` | UUID | ✅ | ID de la conversación (nueva o existente) |
+| `sources` | SourceFragmentDto[] | ✅ | Fragmentos utilizados como contexto |
+| `timestamp` | Date | ✅ | Timestamp de la respuesta |
+| `evaluation` | EvaluationResultDto | ❌ | Scores de evaluación RAG (puede estar ausente si la evaluación falló) |
+
+**EvaluationResultDto**:
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
-| `response` | String | Respuesta generada por el asistente |
-| `conversationId` | UUID | ID de la conversación (nueva o existente) |
-| `sources` | SourceFragmentDto[] | Fragmentos utilizados como contexto |
-| `timestamp` | Date | Timestamp de la respuesta |
+| `faithfulness` | EvaluationScoreDto | Score de fidelidad al contexto documental |
+| `relevancy` | EvaluationScoreDto | Score de relevancia a la pregunta del usuario |
+
+**EvaluationScoreDto**:
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `score` | Number (0-1) | Puntuación numérica de la evaluación |
+| `status` | Enum: `PASS`, `FAIL`, `UNKNOWN` | Estado de la evaluación |
+| `reasoning` | String | Razonamiento breve del LLM juez |
 
 **Errores**:
 - `400 Bad Request` — Validación fallida (sectorId inválido, query vacío)
@@ -510,8 +536,10 @@ Authorization: Bearer <ACCESS_TOKEN>
       "content": "Según el Manual de Vacaciones 2026...",
       "metadata": {
         "model": "gemini-2.5-flash",
-        "faithfulness_score": 0.87,
-        "relevancy_score": 0.92
+        "evaluation": {
+          "faithfulness": { "score": 0.92, "status": "PASS", "reasoning": "..." },
+          "relevancy": { "score": 0.88, "status": "PASS", "reasoning": "..." }
+        }
       },
       "createdAt": "2026-02-03T15:01:02Z"
     }

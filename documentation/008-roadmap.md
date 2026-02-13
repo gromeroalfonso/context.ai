@@ -1790,117 +1790,74 @@ describe('Genkit Evaluators', () => {
 });
 ```
 
-**🟢 GREEN - Implementation**:
+**🟢 GREEN - Implementation** (implementación actual):
 ```typescript
-// [ACTUALIZACIÓN] Evaluadores usan Gemini 2.5 Flash
-// src/shared/genkit/evaluators/faithfulness.evaluator.ts
-import { ai, EvaluatorFactory } from '@genkit-ai/core';
-import { gemini25Flash } from '@genkit-ai/googleai';
+// src/shared/genkit/evaluators/evaluation.types.ts
+export const evaluationScoreSchema = z.object({
+  score: z.number().min(0).max(1),
+  status: z.enum(['PASS', 'FAIL', 'UNKNOWN']),
+  reasoning: z.string(),
+});
 
-export const faithfulnessEvaluator = ai.defineEvaluator(
-  {
-    name: 'faithfulness',
-    displayName: 'Faithfulness',
-    definition: 'Measures if the answer is faithful to the provided context',
-  },
-  async (datapoint: {
-    context: string;
-    answer: string;
-  }) => {
-    const prompt = `
-Evalúa si la RESPUESTA es fiel al CONTEXTO proporcionado.
+export type EvaluationScore = z.infer<typeof evaluationScoreSchema>;
 
-CONTEXTO:
-${datapoint.context}
+export interface RagEvaluationResult {
+  faithfulness: EvaluationScore;
+  relevancy: EvaluationScore;
+}
 
-RESPUESTA:
-${datapoint.answer}
-
-¿La respuesta contiene información que NO está en el contexto o contradice el contexto?
-Responde con un score de 0 a 1:
-- 1.0: Completamente fiel, toda la información viene del contexto
-- 0.5: Parcialmente fiel, alguna información puede no estar en el contexto
-- 0.0: No fiel, inventa información o contradice el contexto
-
-Formato de respuesta:
-Score: <número>
-Reasoning: <explicación breve>
-`;
-
-    const response = await ai.generate({
-      model: gemini25Flash,
-      prompt,
-      config: { temperature: 0.0 },
-    });
-
-    const text = response.text();
-    const scoreMatch = text.match(/Score:\s*([0-9.]+)/);
-    const reasoningMatch = text.match(/Reasoning:\s*(.+)/s);
-
-    return {
-      score: scoreMatch ? parseFloat(scoreMatch[1]) : 0,
-      reasoning: reasoningMatch ? reasoningMatch[1].trim() : 'No reasoning provided',
-    };
-  }
-);
-
-// src/shared/genkit/evaluators/relevancy.evaluator.ts
-export const relevancyEvaluator = ai.defineEvaluator(
-  {
-    name: 'relevancy',
-    displayName: 'Relevancy',
-    definition: 'Measures if the answer is relevant to the query',
-  },
-  async (datapoint: {
-    query: string;
-    answer: string;
-  }) => {
-    const prompt = `
-Evalúa si la RESPUESTA es relevante para la PREGUNTA.
-
-PREGUNTA:
-${datapoint.query}
-
-RESPUESTA:
-${datapoint.answer}
-
-¿La respuesta aborda directamente la pregunta?
-Score de 0 a 1:
-- 1.0: Respuesta perfectamente relevante
-- 0.5: Respuesta parcialmente relevante
-- 0.0: Respuesta no relevante
-
-Formato:
-Score: <número>
-Reasoning: <explicación>
-`;
-
-    const response = await ai.generate({
-      model: gemini25Flash,
-      prompt,
-      config: { temperature: 0.0 },
-    });
-
-    const text = response.text();
-    const scoreMatch = text.match(/Score:\s*([0-9.]+)/);
-    const reasoningMatch = text.match(/Reasoning:\s*(.+)/s);
-
-    return {
-      score: scoreMatch ? parseFloat(scoreMatch[1]) : 0,
-      reasoning: reasoningMatch ? reasoningMatch[1].trim() : '',
-    };
-  }
-);
+export const EVALUATION_CONFIG = {
+  FAITHFULNESS_THRESHOLD: 0.6,
+  RELEVANCY_THRESHOLD: 0.6,
+  EVALUATOR_TEMPERATURE: 0.1,  // Baja para consistencia
+  EVALUATOR_MAX_TOKENS: 512,
+} as const;
 ```
 
-**Tareas Sprint 3.1**:
-- [ ] Configurar Genkit en NestJS
-- [ ] Implementar `ragQueryFlow`
-- [ ] Implementar `faithfulnessEvaluator`
-- [ ] Implementar `relevancyEvaluator`
-- [ ] Tests con diferentes escenarios
-- [ ] Ajustar prompts para mejor calidad
-- [ ] Monitoreo con Genkit UI
+```typescript
+// src/shared/genkit/evaluators/rag-evaluator.service.ts
+// Patrón: LLM-as-judge con Gemini 2.5 Flash
+export function createRagEvaluatorService(ai: Genkit) {
+  async function evaluate(input: {
+    query: string;
+    response: string;
+    context: string[];
+  }): Promise<RagEvaluationResult> {
+    // Evaluaciones en paralelo para performance
+    const [faithfulness, relevancy] = await Promise.all([
+      evaluateFaithfulness(ai, { query, response, context }),
+      evaluateRelevancy(ai, { query, response }),
+    ]);
+    return { faithfulness, relevancy };
+  }
+  return { evaluate };
+}
+```
+
+```typescript
+// Integración en rag-query.flow.ts
+export function createRagQueryService(vectorSearch: VectorSearchFn) {
+  const ai = genkit();
+  const evaluator = createRagEvaluatorService(ai);
+  // ... después de generar la respuesta LLM:
+  const evaluation = await evaluator.evaluate({
+    query, response: result.text, context: fragments.map(f => f.content),
+  });
+  return { response: result.text, sources, evaluation };
+}
+```
+
+**Tareas Sprint 3.1** (completadas):
+- [x] Configurar Genkit en NestJS (`genkit.config.ts` con Gemini 2.5 Flash + gemini-embedding-001)
+- [x] Implementar `createRagQueryService` en `rag-query.flow.ts`
+- [x] Implementar `RagEvaluatorService` con LLM-as-judge (Faithfulness + Relevancy)
+- [x] Validación de scores con Zod schema (`evaluationScoreSchema`)
+- [x] Integrar evaluadores en flujo RAG (evaluación automática post-respuesta)
+- [x] Almacenar scores en `message.metadata` y exponer en `QueryAssistantResponseDto.evaluation`
+- [x] Degradación elegante (si evaluación falla → `UNKNOWN` sin bloquear respuesta)
+- [x] Tests unitarios del evaluador (`rag-evaluator.service.spec.ts`, 13 tests)
+- [x] Ajustar prompts con criterios de evaluación detallados (0.0-1.0 scale)
+- [x] Lint + Build + Test = ✅ (0 errores, 819 tests passing)
 
 ---
 

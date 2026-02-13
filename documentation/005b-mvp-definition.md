@@ -70,10 +70,15 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 - API endpoint: `GET /interaction/conversations/:id` — detalle de conversación con mensajes
 - API endpoint: `DELETE /interaction/conversations/:id` — eliminación lógica de conversación
 - Flujo RAG completo con Genkit + **Gemini 2.5 Flash** (`rag-query.flow.ts`)
-- **Genkit Evaluators configurados**:
-  - `FaithfulnessEvaluator` - Mide fidelidad al contexto
-  - `RelevancyEvaluator` - Mide relevancia a la pregunta
-  - Scores almacenados en metadatos de cada respuesta
+- **RAG Evaluators implementados** (`src/shared/genkit/evaluators/`):
+  - `RagEvaluatorService` — Servicio LLM-as-judge con Gemini 2.5 Flash (temperatura 0.1)
+  - **Faithfulness**: Evalúa si la respuesta está fundamentada en el contexto documental
+  - **Relevancy**: Evalúa si la respuesta aborda directamente la pregunta del usuario
+  - Evaluaciones ejecutadas en paralelo (`Promise.all`) tras cada respuesta RAG
+  - Scores validados con Zod schema (`evaluationScoreSchema`): `score` (0-1), `status` (PASS/FAIL/UNKNOWN), `reasoning`
+  - Scores almacenados en metadatos de cada mensaje de asistente (`message.metadata`)
+  - Scores expuestos en `QueryAssistantResponseDto.evaluation` (campo opcional)
+  - Degradación elegante: si la evaluación falla, retorna `UNKNOWN` sin bloquear la respuesta
 - Búsqueda semántica en **Pinecone** (top-5 fragmentos, filtrados por sectorId)
 - Construcción de prompt con contexto (vía `PromptService` con templates)
 - Sistema de citado de fuentes
@@ -363,7 +368,7 @@ Un feature del MVP se considera **DONE** cuando:
 - **Gemini 2.5 Flash** (`googleai/gemini-2.5-flash`) — LLM
 - **gemini-embedding-001** (`googleai/gemini-embedding-001`, 3072 dimensiones) — Embeddings
 - **Pinecone** (`@pinecone-database/pinecone`) — Vector Store
-- Genkit Evaluators (Faithfulness, Relevancy)
+- RAG Evaluators — `RagEvaluatorService` (LLM-as-judge: Faithfulness, Relevancy)
 
 ---
 
