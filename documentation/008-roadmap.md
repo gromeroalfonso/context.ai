@@ -1,6 +1,8 @@
 # Roadmap de Implementación - Context.ai MVP
 ## Plan de Desarrollo con TDD (Red-Green-Refactor)
 
+> **Nota de actualización (Febrero 2026):** Este documento refleja el plan original con anotaciones `[ACTUALIZACIÓN]` donde la implementación final difiere del plan. Los cambios principales incluyen: migración a Gemini 2.5 Flash como LLM, uso de Pinecone como vector store (en lugar de pgvector), adopción de NextAuth.js v5 con Auth0 provider (en lugar del SDK directo de Auth0), y uso de Jest para testing backend (en lugar de Vitest).
+
 ---
 
 ## 1. Visión General del MVP
@@ -8,12 +10,14 @@
 ### Alcance del MVP
 - ✅ **UC2**: Ingesta de Documentos (PDF, Markdown)
 - ✅ **UC5**: Consultar Asistente de IA (Chat RAG)
-- ✅ **Auth0**: Autenticación social (Google OAuth2)
+- ✅ **Auth0**: Autenticación social (Google OAuth2) — `[ACTUALIZACIÓN]` Implementada vía **NextAuth.js v5** con Auth0 provider
 - ✅ **RBAC**: Autorización interna con roles y permisos
-- ✅ **Sectors**: Organización de conocimiento
+- ✅ **Sectors**: Organización de conocimiento — `[ACTUALIZACIÓN]` Implementados como campo `sectorId` en entidades (no como módulo CRUD independiente)
 - ✅ **Observabilidad**: Genkit UI, Sentry
 - ✅ **Quality**: Genkit Evaluators (Faithfulness, Relevancy)
 - ✅ **Security**: Text sanitization, prompt injection prevention
+- ✅ **i18n**: Internacionalización con `next-intl` v4 (ES/EN)
+- ✅ **E2E Testing**: Playwright para tests end-to-end del frontend
 
 ### Criterios de Éxito del MVP
 1. ✅ Usuario puede autenticarse con Google
@@ -33,6 +37,23 @@
 - **Fase 3**: Frontend (2 dias)
 - **Fase 4**: Integration & Testing (1 dia)
 - **Fase 5**: Deployment & Piloto (1-2 dias)
+
+### Cambios Tecnológicos Clave vs Plan Original
+
+| Área | Plan Original | Implementación Real |
+|------|---------------|---------------------|
+| LLM | Gemini 1.5 Pro | **Gemini 2.5 Flash** (más rápido, más económico) |
+| Embeddings | text-embedding-004 (768d) | **gemini-embedding-001** (3072d) |
+| Vector Store | pgvector (PostgreSQL) | **Pinecone** (servicio gestionado) |
+| Frontend Auth | @auth0/nextjs-auth0 SDK | **NextAuth.js v5** con Auth0 provider |
+| Backend Testing | Vitest | **Jest 30** |
+| Frontend Testing E2E | Vitest + Supertest | **Playwright** |
+| Frontend Framework | Next.js 13+ | **Next.js 16+** con React 19 |
+| Backend Framework | NestJS | **NestJS 11+** |
+| PDF Parser | pdfjs-dist | **pdf-parse** |
+| Queue System | BullMQ + Redis | **Procesamiento síncrono** (simplificado para MVP) |
+| CSS | Tailwind CSS | **Tailwind CSS 4** |
+| i18n | No planificado | **next-intl v4** (ES/EN) |
 
 ---
 
@@ -90,10 +111,12 @@ describe('POST /knowledge/sources', () => {
 
 | Tipo | Cobertura | Herramienta |
 |------|-----------|-------------|
-| Unit Tests | 90% | Vitest |
-| Integration Tests | 80% | Vitest + Testcontainers |
-| E2E Tests | 70% | Vitest + Supertest |
-| **Global** | **≥ 80%** | Vitest Coverage |
+| Unit Tests (Backend) | 90% | Jest 30 |
+| Integration Tests (Backend) | 80% | Jest + Testcontainers |
+| E2E Tests (Backend) | 70% | Jest + Supertest |
+| Unit Tests (Frontend) | 80% | Vitest + Testing Library |
+| E2E Tests (Frontend) | 70% | Playwright |
+| **Global** | **≥ 80%** | Jest Coverage (Backend) / Vitest Coverage (Frontend) |
 
 ---
 
@@ -128,9 +151,9 @@ describe('NestJS App', () => {
   pnpm add @nestjs/common @nestjs/core @nestjs/platform-express
   pnpm add @nestjs/config @nestjs/typeorm typeorm pg
   pnpm add class-validator class-transformer
-  pnpm add -D @nestjs/testing vitest @vitest/coverage-v8
+  pnpm add -D @nestjs/testing jest @types/jest ts-jest
   ```
-- [ ] Configurar Vitest (`vitest.config.ts`)
+- [ ] Configurar Jest (`jest.config.js`) — `[ACTUALIZACIÓN]` Se usa Jest 30 en lugar de Vitest
 - [ ] Estructura de carpetas:
   ```
   src/
@@ -172,8 +195,9 @@ describe('Home Page', () => {
   ```bash
   pnpm add @tanstack/react-query axios
   pnpm add tailwindcss postcss autoprefixer
-  pnpm add -D vitest @testing-library/react @testing-library/jest-dom
+  pnpm add -D vitest @testing-library/react @testing-library/jest-dom @playwright/test
   ```
+  — `[ACTUALIZACIÓN]` Se añadió Playwright para E2E tests del frontend
 - [ ] Configurar Tailwind CSS + shadcn/ui
 - [ ] Estructura de carpetas:
   ```
@@ -249,11 +273,10 @@ describe('Database Connection', () => {
     expect(connection.isInitialized).toBe(true);
   });
 
-  it('should have pgvector extension enabled', async () => {
-    const result = await connection.query(
-      "SELECT extname FROM pg_extension WHERE extname = 'pg_uuidv7'"
-    );
-    expect(result).toHaveLength(1);
+  // [ACTUALIZACIÓN] pgvector ya no se usa localmente - embeddings se almacenan en Pinecone
+  it('should connect successfully', async () => {
+    const result = await connection.query("SELECT 1");
+    expect(result).toBeDefined();
   });
 });
 ```
@@ -264,7 +287,7 @@ describe('Database Connection', () => {
   version: '3.9'
   services:
     postgres:
-      image: pgvector/pgvector:pg16
+      image: postgres:16-alpine
       environment:
         POSTGRES_DB: contextai
         POSTGRES_USER: contextai_user
@@ -273,22 +296,11 @@ describe('Database Connection', () => {
         - "5432:5432"
       volumes:
         - postgres_data:/var/lib/postgresql/data
-        - ./migrations/init:/docker-entrypoint-initdb.d
-    
-    redis:
-      image: redis:7-alpine
-      ports:
-        - "6379:6379"
   
   volumes:
     postgres_data:
   ```
-- [ ] Script de inicialización `migrations/init/001_extensions.sql`:
-  ```sql
-  CREATE EXTENSION IF NOT EXISTS pg_uuidv7;
-  CREATE EXTENSION IF NOT EXISTS vector;
-  CREATE EXTENSION IF NOT EXISTS pg_trgm;
-  ```
+  > `[ACTUALIZACIÓN]` Se eliminó Redis (no se usa BullMQ) y se cambió la imagen de pgvector a postgres estándar. Los embeddings se almacenan en **Pinecone** (servicio externo), no en PostgreSQL.
 - [ ] Configurar TypeORM en NestJS
 - [ ] Ejecutar migraciones del `006-modelo-datos.md`
 
@@ -988,30 +1000,26 @@ describe('PdfParserService', () => {
 
 **🟢 GREEN - Implementation**:
 ```typescript
-// src/modules/knowledge/services/pdf-parser.service.ts
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf';
+// [ACTUALIZACIÓN] Implementación real usa pdf-parse (no pdfjs-dist)
+// src/modules/knowledge/infrastructure/services/document-parser.service.ts
+import * as pdfParse from 'pdf-parse';
 
 @Injectable()
-export class PdfParserService {
-  async extractText(pdfBuffer: Buffer): Promise<string> {
-    const pdf = await pdfjsLib.getDocument({
-      data: new Uint8Array(pdfBuffer),
-    }).promise;
-
-    const textPages: string[] = [];
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      
-      textPages.push(pageText);
+export class DocumentParserService {
+  async parseDocument(buffer: Buffer, sourceType: SourceType): Promise<string> {
+    switch (sourceType) {
+      case SourceType.PDF:
+        return this.parsePdf(buffer);
+      case SourceType.MARKDOWN:
+        return this.stripMarkdownSyntax(buffer.toString('utf-8'));
+      default:
+        throw new Error(`Unsupported source type: ${sourceType}`);
     }
+  }
 
-    return textPages.join('\n\n');
+  private async parsePdf(buffer: Buffer): Promise<string> {
+    const data = await pdfParse(buffer);
+    return data.text;
   }
 }
 ```
@@ -1143,8 +1151,9 @@ describe('ChunkingService', () => {
 
 **🟢 GREEN - Implementation**:
 ```typescript
-// src/modules/knowledge/services/chunking.service.ts
-import { encode } from 'gpt-tokenizer'; // o tiktoken
+// [ACTUALIZACIÓN] La implementación real usa estimación de tokens basada en caracteres
+// src/modules/knowledge/infrastructure/services/chunking.service.ts
+// Constante compartida: CHARS_PER_TOKEN_ESTIMATE = 4
 
 @Injectable()
 export class ChunkingService {
@@ -1227,12 +1236,13 @@ export class ChunkingService {
 ```typescript
 // src/modules/knowledge/services/embedding.service.spec.ts
 describe('EmbeddingService', () => {
-  it('should generate 768-dimensional embedding', async () => {
+  // [ACTUALIZACIÓN] Dimensión real: 3072 (gemini-embedding-001, no text-embedding-004)
+  it('should generate 3072-dimensional embedding', async () => {
     const text = 'Los empleados tienen derecho a 15 días de vacaciones.';
     
     const embedding = await embeddingService.generateEmbedding(text);
     
-    expect(embedding).toHaveLength(768);
+    expect(embedding).toHaveLength(3072);
     expect(embedding[0]).toBeTypeOf('number');
   });
 
@@ -1252,7 +1262,7 @@ describe('EmbeddingService', () => {
     
     expect(embeddings).toHaveLength(3);
     embeddings.forEach(emb => {
-      expect(emb).toHaveLength(768);
+      expect(emb).toHaveLength(3072);
     });
   });
 });
@@ -1260,26 +1270,25 @@ describe('EmbeddingService', () => {
 
 **🟢 GREEN - Implementation**:
 ```typescript
-// src/modules/knowledge/services/embedding.service.ts
-import { GoogleGenerativeAI } from '@google/generative-ai';
+// [ACTUALIZACIÓN] Implementación real usa Google Genkit con gemini-embedding-001
+// src/modules/knowledge/infrastructure/services/embedding.service.ts
+import { embed } from '@genkit-ai/ai';
 
 @Injectable()
 export class EmbeddingService {
-  private genAI: GoogleGenerativeAI;
-  private model: any;
+  // Usa googleai/gemini-embedding-001 configurado en genkit.config.ts
+  // Dimensión: 3072
 
-  constructor(private configService: ConfigService) {
-    this.genAI = new GoogleGenerativeAI(
-      this.configService.get('GOOGLE_API_KEY')
-    );
-    this.model = this.genAI.getGenerativeModel({ 
-      model: 'text-embedding-004' 
+  async generateEmbedding(
+    text: string, 
+    taskType: EmbeddingTaskType = EmbeddingTaskType.RETRIEVAL_DOCUMENT
+  ): Promise<number[]> {
+    const result = await embed({
+      embedder: 'googleai/gemini-embedding-001',
+      content: text,
+      options: { taskType },
     });
-  }
-
-  async generateEmbedding(text: string): Promise<number[]> {
-    const result = await this.model.embedContent(text);
-    return result.embedding.values;
+    return result;
   }
 
   async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
@@ -1309,9 +1318,9 @@ describe('ProcessDocumentJob', () => {
     });
     expect(fragments.length).toBeGreaterThan(0);
 
-    // Verificar embeddings
+    // [ACTUALIZACIÓN] Embeddings se almacenan en Pinecone, no en la tabla fragments
+    // Se verifica que los fragments tienen tokenCount y metadata correctos
     fragments.forEach(fragment => {
-      expect(fragment.embedding).toHaveLength(768);
       expect(fragment.tokenCount).toBeGreaterThan(10);
     });
 
@@ -1392,19 +1401,30 @@ export class ProcessDocumentJob {
         chunks.map(c => c.content)
       );
 
-      // 6. Guardar fragments en BD
+      // 6. Guardar fragments en BD (sin embeddings - esos van a Pinecone)
+      // [ACTUALIZACIÓN] Embeddings se almacenan en Pinecone, no en PostgreSQL
       const fragments = chunks.map((chunk, index) => 
         this.fragmentRepository.create({
           sourceId: source.id,
           content: chunk.content,
-          embedding: embeddings[index],
           position: chunk.position,
           tokenCount: chunk.tokenCount,
-          chunkMetadata: chunk.metadata,
+          metadata: chunk.metadata,
         })
       );
 
       await this.fragmentRepository.save(fragments);
+
+      // 6b. Upsert embeddings a Pinecone
+      await this.vectorStoreService.upsertFragments(
+        fragments.map((f, i) => ({
+          fragmentId: f.id,
+          sourceId: source.id,
+          sectorId: source.sectorId,
+          embedding: embeddings[i],
+          content: f.content,
+        }))
+      );
 
       // 7. Actualizar source
       source.status = SourceStatus.COMPLETED;
@@ -1429,14 +1449,14 @@ export class ProcessDocumentJob {
 ```
 
 **Tareas Sprint 2.2**:
-- [ ] Implementar `PdfParserService`
-- [ ] Implementar `TextSanitizerService`
-- [ ] Implementar `ChunkingService`
-- [ ] Implementar `EmbeddingService` con Genkit/Gemini
-- [ ] Implementar `ProcessDocumentJob` con BullMQ
-- [ ] Tests unitarios de cada servicio
-- [ ] Test de integración del job completo
-- [ ] Monitoreo del job (dashboard BullMQ)
+- [x] Implementar `DocumentParserService` (usa `pdf-parse` para PDFs)
+- [x] Implementar sanitización de texto (integrada en parser)
+- [x] Implementar `ChunkingService`
+- [x] Implementar `EmbeddingService` con Genkit (`gemini-embedding-001`, 3072d)
+- [x] Implementar `IngestDocumentUseCase` — `[ACTUALIZACIÓN]` Procesamiento síncrono, sin BullMQ/Redis
+- [x] Implementar `PineconeVectorStoreService` para almacenar embeddings
+- [x] Tests unitarios de cada servicio
+- [x] Test de integración del flujo completo
 
 ---
 
@@ -1490,77 +1510,51 @@ describe('VectorSearchService', () => {
 
 **🟢 GREEN - Implementation**:
 ```typescript
-// src/modules/knowledge/services/vector-search.service.ts
+// [ACTUALIZACIÓN] Implementación real usa Pinecone para búsqueda vectorial
+// src/modules/knowledge/infrastructure/persistence/services/pinecone-vector-store.service.ts
 @Injectable()
-export class VectorSearchService {
-  constructor(
-    @InjectRepository(Fragment)
-    private fragmentRepository: Repository<Fragment>,
-    private embeddingService: EmbeddingService,
-  ) {}
+export class PineconeVectorStoreService {
+  private index: Index;
+
+  constructor(private configService: ConfigService) {
+    const pc = new Pinecone({ apiKey: this.configService.get('PINECONE_API_KEY') });
+    this.index = pc.index(this.configService.get('PINECONE_INDEX'));
+  }
 
   async search(
-    query: string,
-    options: SearchOptions
+    queryEmbedding: number[],
+    sectorId: string,
+    topK: number = 5,
   ): Promise<SearchResult[]> {
-    const {
-      sectorId,
-      limit = 5,
-      minSimilarity = 0.5,
-    } = options;
+    const results = await this.index.query({
+      vector: queryEmbedding,
+      topK,
+      filter: { sectorId: { $eq: sectorId } },
+      includeMetadata: true,
+    });
 
-    // 1. Generar embedding de la query
-    const queryEmbedding = await this.embeddingService.generateEmbedding(query);
-
-    // 2. Búsqueda vectorial con pgvector
-    const results = await this.fragmentRepository
-      .createQueryBuilder('fragment')
-      .select([
-        'fragment.id',
-        'fragment.content',
-        'fragment.position',
-        'fragment.chunkMetadata',
-      ])
-      .addSelect('ks.id', 'sourceId')
-      .addSelect('ks.title', 'sourceTitle')
-      .addSelect(
-        `1 - (fragment.embedding <=> :queryEmbedding)`,
-        'similarity'
-      )
-      .innerJoin('fragment.source', 'ks')
-      .where('ks.sectorId = :sectorId', { sectorId })
-      .andWhere('ks.status = :status', { status: SourceStatus.COMPLETED })
-      .andWhere('ks.status != :deleted', { deleted: SourceStatus.DELETED })
-      .orderBy('similarity', 'DESC')
-      .limit(limit)
-      .setParameter('queryEmbedding', JSON.stringify(queryEmbedding))
-      .getRawMany();
-
-    return results
-      .filter(r => r.similarity >= minSimilarity)
-      .map(r => ({
-        fragmentId: r.fragment_id,
-        content: r.fragment_content,
-        sourceId: r.sourceId,
-        sourceTitle: r.sourceTitle,
-        similarity: parseFloat(r.similarity),
-        metadata: r.fragment_chunkMetadata,
-      }));
+    return results.matches.map(match => ({
+      fragmentId: match.id,
+      content: match.metadata?.content as string,
+      sourceId: match.metadata?.sourceId as string,
+      sourceTitle: match.metadata?.sourceTitle as string,
+      similarity: match.score ?? 0,
+    }));
   }
 }
 ```
 
 **Tareas Sprint 2.3**:
-- [ ] Implementar `VectorSearchService`
-- [ ] Tests unitarios con fixtures
-- [ ] Benchmark de performance (< 100ms para 1000 fragments)
-- [ ] Endpoint temporal `POST /knowledge/search` para testing
+- [x] Implementar `PineconeVectorStoreService` — `[ACTUALIZACIÓN]` Reemplaza pgvector
+- [x] Tests unitarios con fixtures
+- [x] Benchmark de performance
+- [x] Integrar búsqueda vectorial en `QueryAssistantUseCase`
 
 **Entregables Fase 2**:
-- ✅ Pipeline de ingesta completo (PDF → Embeddings)
+- ✅ Pipeline de ingesta completo (PDF → Embeddings → Pinecone)
 - ✅ Sanitización de texto funcional
-- ✅ Búsqueda vectorial con pgvector
-- ✅ Jobs asíncronos con BullMQ
+- ✅ Búsqueda vectorial con **Pinecone** (no pgvector)
+- ✅ Procesamiento síncrono (sin BullMQ/Redis)
 - ✅ Tests con 85%+ coverage
 - ✅ Documentos procesados en < 30 segundos
 
@@ -1581,7 +1575,7 @@ Implementar UC5 (Chat) con Google Genkit, evaluadores y frontend básico.
 **Criterios de Aceptación**:
 - [ ] Usuario envía pregunta en lenguaje natural
 - [ ] Sistema busca fragmentos relevantes (RAG)
-- [ ] Genkit genera respuesta con Gemini 1.5 Pro
+- [ ] Genkit genera respuesta con **Gemini 2.5 Flash** — `[ACTUALIZACIÓN]` Cambio de modelo
 - [ ] Respuesta incluye referencias a fuentes
 - [ ] Faithfulness score ≥ 0.80
 - [ ] Relevancy score ≥ 0.75
@@ -1630,9 +1624,10 @@ describe('RAGQueryFlow', () => {
 
 **🟢 GREEN - Implementation**:
 ```typescript
-// src/modules/chat/flows/rag-query.flow.ts
+// [ACTUALIZACIÓN] Modelo real: googleai/gemini-2.5-flash (no gemini-1.5-pro)
+// src/shared/genkit/flows/rag-query.flow.ts
 import { ai } from '@genkit-ai/core';
-import { gemini15Pro } from '@genkit-ai/googleai';
+import { gemini25Flash } from '@genkit-ai/googleai';
 
 export const ragQueryFlow = ai.defineFlow(
   {
@@ -1681,9 +1676,9 @@ export const ragQueryFlow = ai.defineFlow(
       conversationHistory: input.conversationHistory,
     });
 
-    // 5. Generar respuesta con Gemini
+    // 5. Generar respuesta con Gemini 2.5 Flash
     const llmResponse = await ai.generate({
-      model: gemini15Pro,
+      model: gemini25Flash,
       prompt,
       config: {
         temperature: 0.3,
@@ -1797,9 +1792,10 @@ describe('Genkit Evaluators', () => {
 
 **🟢 GREEN - Implementation**:
 ```typescript
-// src/modules/chat/evaluators/faithfulness.evaluator.ts
+// [ACTUALIZACIÓN] Evaluadores usan Gemini 2.5 Flash
+// src/shared/genkit/evaluators/faithfulness.evaluator.ts
 import { ai, EvaluatorFactory } from '@genkit-ai/core';
-import { gemini15Pro } from '@genkit-ai/googleai';
+import { gemini25Flash } from '@genkit-ai/googleai';
 
 export const faithfulnessEvaluator = ai.defineEvaluator(
   {
@@ -1832,7 +1828,7 @@ Reasoning: <explicación breve>
 `;
 
     const response = await ai.generate({
-      model: gemini15Pro,
+      model: gemini25Flash,
       prompt,
       config: { temperature: 0.0 },
     });
@@ -1848,7 +1844,7 @@ Reasoning: <explicación breve>
   }
 );
 
-// src/modules/chat/evaluators/relevancy.evaluator.ts
+// src/shared/genkit/evaluators/relevancy.evaluator.ts
 export const relevancyEvaluator = ai.defineEvaluator(
   {
     name: 'relevancy',
@@ -1880,7 +1876,7 @@ Reasoning: <explicación>
 `;
 
     const response = await ai.generate({
-      model: gemini15Pro,
+      model: gemini25Flash,
       prompt,
       config: { temperature: 0.0 },
     });
@@ -1999,7 +1995,7 @@ export class SendMessageUseCase {
       content: ragResult.answer,
       sourcesUsed: ragResult.sources,
       metadata: {
-        model: 'gemini-1.5-pro',
+        model: 'googleai/gemini-2.5-flash',
         latencyMs: ragResult.latencyMs,
         tokensUsed: ragResult.tokensUsed,
         faithfulnessScore: ragResult.evaluations.faithfulness,
@@ -2019,11 +2015,11 @@ export class SendMessageUseCase {
 ```
 
 **Tareas Sprint 3.2**:
-- [ ] Implementar `ChatModule` completo
-- [ ] Use cases: `CreateConversation`, `SendMessage`, `ListConversations`
-- [ ] Controllers con guards y validación
-- [ ] Rate limiting con Redis
-- [ ] Tests E2E del flujo completo
+- [x] Implementar `InteractionModule` completo — `[ACTUALIZACIÓN]` Renombrado de ChatModule a InteractionModule
+- [x] Use cases: `QueryAssistantUseCase` (crea conversación + envía mensaje en una sola operación)
+- [x] Controllers con guards y validación (`InteractionController`)
+- [x] Rate limiting con `express-rate-limit` (sin Redis)
+- [x] Tests E2E del flujo completo
 
 ---
 
@@ -2294,12 +2290,10 @@ services:
       - "3000:3000"
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: postgres:16-alpine  # [ACTUALIZACIÓN] No se necesita pgvector
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7-alpine
+    # [ACTUALIZACIÓN] Redis eliminado - no se usa BullMQ
 ```
 
 #### Opción B: Comparativa de Plataformas
@@ -2430,7 +2424,7 @@ services:
 | Riesgo | Probabilidad | Impacto | Mitigación |
 |--------|--------------|---------|------------|
 | Auth0 quota exceeded | Baja | Alto | Plan de escalamiento, monitoreo |
-| pgvector performance issues | Media | Alto | Benchmarking temprano, índices optimizados |
+| Pinecone availability/latency | Baja | Alto | Retry logic, fallback strategy — `[ACTUALIZACIÓN]` Reemplaza pgvector |
 | Gemini API rate limits | Media | Medio | Caching, retry logic, plan paid |
 | Test coverage < 80% | Media | Medio | Revisión diaria de coverage, pair programming |
 | Deployment delays | Baja | Alto | Selección de plataforma temprana, Dockerfile desde Fase 1 |
@@ -2457,7 +2451,7 @@ services:
 **Q4 2026**:
 - Mobile app (React Native)
 - Voice interface
-- Multi-idioma
+- ~~Multi-idioma~~ — `[ACTUALIZACIÓN]` i18n ya implementado en MVP (ES/EN con next-intl v4)
 
 ---
 

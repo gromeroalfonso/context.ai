@@ -10,7 +10,6 @@
 ---
 
 ### 2. Diagrama de Casos de Uso (Mermaid)
-
 ```mermaid
 flowchart TB
     subgraph Context.ai [Context.ai: Gestión de Conocimiento]

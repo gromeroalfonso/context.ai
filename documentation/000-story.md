@@ -16,7 +16,7 @@ Identifiqué tres puntos criticos que frenan nuestro crecimiento:
 La empresa tomó la decisión de becarme para realizar este Máster en Desarrollo con IA. Como ingeniera, sentí que la mejor forma de retribuir este voto de confianza no era solo aprendiendo, sino construyendo algo que resolviera sus problemas diarios. Quise transformar mi aprendizaje en una herramienta que devolviera el tiempo a mis compañeros.
 
 3. La Visión: No es un Chatbot, es un Orquestador
-Así nace Context.ai. Mi visión no era hacer un "clon" de herramientas existentes, sino un nicho de ingeniería enfocado en la Sincronización de Contexto.
+Así nace Contxt.ai. Mi visión no era hacer un "clon" de herramientas existentes, sino un nicho de ingeniería enfocado en la Sincronización de Contexto.
 
     - Contexto Vivo: Un sistema que aprende de nuestra documentación real y genera materiales de onboarding (vídeos, guías) de forma autónoma.
 

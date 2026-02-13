@@ -1,8 +1,8 @@
-# Especificación de Requisitos: Context.ai
+# Especificación de Requisitos: Contxt.ai
 ## El Orquestador de Cultura y Conocimiento Dinámico
 
 ### 1. Propósito y Contexto de Negocio
-Context.ai nace para resolver la fragmentación de información y la alta rotación en entornos de startups. El proyecto se centra en:
+Contxt.ai nace para resolver la fragmentación de información y la alta rotación en entornos de startups. El proyecto se centra en:
 * **Centralización**: Unificar el conocimiento disperso en múltiples herramientas.
 * **Onboarding Autónomo**: Reducir la dependencia de mentores mediante tutores personalizados con IA.
 * **Retención de Conocimiento**: Asegurar que el "know-how" permanezca en la empresa a pesar de la rotación.
@@ -39,8 +39,8 @@ Limitaciones tecnológicas obligatorias para el desarrollo:
 | **Backend** | NestJS | Facilita el uso de DDD y SOLID. |
 | **Frontend** | Next.js | Optimización de UX y SSR. |
 | **Orquestación IA** | Google Genkit | Flujos agénticos y Tool Calling avanzado. |
-| **Modelos (LLM)** | Gemini 1.5 Pro | Amplia ventana de contexto para RAG. |
-| **Base de Datos** | Cloud SQL (pgvector) | Almacenamiento relacional y vectorial integrado. |
+| **Modelos (LLM)** | Gemini 2.5 Flash | Amplia ventana de contexto para RAG. |
+| **Base de Datos** | Cloud SQL & Pinecone (vectorial) | Almacenamiento relacional y vectorial. |
 
 ---
 
@@ -58,12 +58,11 @@ Definen los objetivos estratégicos de la startup para este proyecto:
 * **RN-1: Reducción del Tiempo de Onboarding**: Automatizar la entrega de conocimiento para que un nuevo integrante sea operativo en un 30% menos de tiempo sin intervención humana constante.
 * **RN-2: Centralización del Capital Intelectual**: Evitar la fuga de conocimiento provocada por la alta tasa de rotación, asegurando que la información crítica resida en la plataforma y no solo en las personas.
 * **RN-3: Optimización de Roles Mixtos**: Facilitar que empleados con múltiples funciones accedan rápidamente a guías de procesos de áreas que no son su especialidad principal.
-* **RN-4: Retorno de Inversión en Formación**: Demostrar la aplicabilidad real de la IA para mejorar los procesos internos tras la apuesta de la empresa por la formación del empleado[cite: 1, 856].
+* **RN-4: Retorno de Inversión en Formación**: Demostrar la aplicabilidad real de la IA para mejorar los procesos internos.
 
 ---
 
 ### 7. Requisitos de Usuario (User Requirements)
-Definen lo que los diferentes roles esperan poder hacer con el sistema[cite: 158]:
 
 #### A. Perfil RRHH / Gestión (Administrador de Contenido)
 * **RU-1: Creación de Bases de Conocimiento (RAG)**: El usuario debe poder crear "sectores" aislados subiendo documentación específica para generar una base de conocimiento especializada.

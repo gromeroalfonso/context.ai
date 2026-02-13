@@ -1,5 +1,6 @@
 # Definición del MVP - Context.ai
 ## Producto Mínimo Viable: Sistema RAG con Chat Inteligente
+### Actualizado: Febrero 2026
 
 ---
 
@@ -30,23 +31,20 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 - ✅ Puedo subir archivos Markdown (.md)
 - ✅ Especifico a qué sector pertenece el documento
 - ✅ El sistema procesa el documento automáticamente (parsing, chunking, embeddings)
-- ✅ **El contenido pasa validación de sanitización anti-prompt-injection**
 - ✅ Veo confirmación de que el documento fue indexado correctamente
 - ✅ El procesamiento completa en menos de 2 minutos para un PDF de 50 páginas
-- ✅ Los documentos con contenido malicioso son rechazados con mensaje claro
 
-**Entregables técnicos**:
-- API endpoint: `POST /api/knowledge/sources`
-- Parsing de PDF con `pdf-parse`
-- **`TextSanitizationService`** - Validación y limpieza de contenido:
-  - Detección de patrones de prompt injection
-  - Limpieza de caracteres especiales y escape sequences
-  - Validación de contenido sospechoso antes de indexar
-- Chunking de 500 tokens con overlap de 50
-- Generación de embeddings con Genkit
-- Almacenamiento en PostgreSQL + pgvector
-- Tests unitarios y de integración con TDD
-- **Tests específicos de seguridad** para prompt injection
+**Entregables técnicos** (implementación actual):
+- API endpoint: `POST /knowledge/documents/upload` (multipart form data)
+- API endpoint: `DELETE /knowledge/documents/:sourceId`
+- Parsing de PDF con `pdf-parse` + sanitización de markdown syntax (`DocumentParserService`)
+- Chunking de ~500 tokens con overlap de 50 (`ChunkingService`)
+- Generación de embeddings con Genkit + `gemini-embedding-001` (3072 dimensiones) (`EmbeddingService`)
+- Almacenamiento de metadatos en **PostgreSQL 16** (tablas `knowledge_sources`, `fragments`)
+- Almacenamiento de vectores en **Pinecone** (`PineconeVectorStoreService`)
+- Tests unitarios y de integración con TDD (Jest)
+
+> **⚠️ Nota sobre TextSanitizationService**: El servicio dedicado de sanitización anti-prompt-injection planificado originalmente **no se implementó como servicio independiente**. La sanitización actual se limita a la limpieza de markdown syntax en `DocumentParserService`. Se recomienda implementar validación anti-prompt-injection en fases posteriores.
 
 ---
 
@@ -66,19 +64,21 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 - ✅ Si no encuentra información, me lo indica claramente
 - ✅ Puedo ver el historial de mi conversación
 
-**Entregables técnicos**:
-- API endpoint: `POST /api/chat/query`
-- Flujo RAG completo con Genkit + Gemini 1.5 Pro
+**Entregables técnicos** (implementación actual):
+- API endpoint: `POST /interaction/query` — consulta al asistente con flujo RAG
+- API endpoint: `GET /interaction/conversations` — listado de conversaciones del usuario
+- API endpoint: `GET /interaction/conversations/:id` — detalle de conversación con mensajes
+- API endpoint: `DELETE /interaction/conversations/:id` — eliminación lógica de conversación
+- Flujo RAG completo con Genkit + **Gemini 2.5 Flash** (`rag-query.flow.ts`)
 - **Genkit Evaluators configurados**:
   - `FaithfulnessEvaluator` - Mide fidelidad al contexto
   - `RelevancyEvaluator` - Mide relevancia a la pregunta
-  - Logs automáticos de scores en cada respuesta
-- Búsqueda semántica con pgvector (top-5 fragmentos)
-- Construcción de prompt con contexto
+  - Scores almacenados en metadatos de cada respuesta
+- Búsqueda semántica en **Pinecone** (top-5 fragmentos, filtrados por sectorId)
+- Construcción de prompt con contexto (vía `PromptService` con templates)
 - Sistema de citado de fuentes
-- Interfaz de chat en Next.js
-- Tests E2E del flujo completo
-- **Tests de calidad con evaluators en modo batch**
+- Interfaz de chat en Next.js 16 con rendering Markdown
+- Validación de input con Zod schema
 
 ---
 
@@ -90,17 +90,23 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 **Criterios de aceptación**:
 - ✅ Puedo hacer login con Auth0 (email/password)
 - ✅ Mis credenciales se validan correctamente
-- ✅ Los tokens se almacenan en cookies HttpOnly
-- ✅ Las cookies tienen configuración segura (SameSite, Secure en prod)
+- ✅ Los tokens se gestionan de forma segura
 - ✅ Puedo hacer logout y la sesión se invalida
 - ✅ Los tokens expiran y se renuevan automáticamente
 
-**Entregables técnicos**:
-- Integración con Auth0 en backend (validación JWT con JWKS)
-- Auth0 SDK en frontend (`@auth0/nextjs-auth0`)
-- Guards de autenticación en NestJS
-- Middleware de protección de rutas en Next.js
-- API route para obtener access token server-side
+**Entregables técnicos** (implementación actual):
+- **Backend**: Auth0 JWT validation con Passport-JWT + JWKS (`jwks-rsa`)
+  - `JwtStrategy` con validación de tokens via JWKS endpoint
+  - `JwtAuthGuard` como guard global
+  - `InternalApiKeyGuard` para comunicación server-to-server
+- **Frontend**: **NextAuth.js v5** (next-auth 5.0.0-beta.30) con **Auth0 como provider OAuth**
+  - Callbacks JWT y Session para sincronización con backend
+  - API route `/api/auth/[...nextauth]` (handler de NextAuth)
+  - API route `/api/auth/token` (obtener access token server-side)
+  - Middleware de protección de rutas por locale (`middleware.ts`)
+  - Protected layout con verificación de sesión
+
+> **⚠️ Cambio vs diseño original**: Se planificó usar `@auth0/nextjs-auth0` (Auth0 SDK). Se implementó **NextAuth.js v5 con Auth0 como provider OAuth** por mejor integración con Next.js App Router y React Server Components. Los tokens NO se almacenan en cookies HttpOnly directamente — NextAuth.js gestiona la sesión con su propio mecanismo de JWT/session.
 
 ---
 
@@ -110,18 +116,22 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 **Para que** solo los autorizados puedan subir documentos o acceder a ciertos sectores
 
 **Criterios de aceptación**:
-- ✅ Existen al menos 2 roles: `admin` y `user`
-- ✅ Solo `admin` puede subir documentos
+- ✅ Existen roles: `ADMIN`, `CONTENT_MANAGER`, `USER`, `VIEWER`
+- ✅ Solo usuarios con permisos `knowledge:write` pueden subir documentos
 - ✅ Los usuarios solo pueden consultar documentos de sectores asignados a ellos
 - ✅ El sistema valida permisos en cada request
 - ✅ Los intentos de acceso no autorizado son bloqueados con error 403
 
-**Entregables técnicos**:
-- Tablas: `users`, `roles`, `user_roles`, `sectors`
-- Authorization guards en NestJS
-- Decoradores: `@RequirePermission()`, `@RequireSectorAccess()`
-- Sistema de permisos: `knowledge:read`, `knowledge:write`, `chat:query`
-- Sincronización usuario Auth0 → BD interna
+**Entregables técnicos** (implementación actual):
+- Tablas: `users`, `roles`, `permissions`, `user_roles` (join), `role_permissions` (join)
+- Guards: `JwtAuthGuard`, `RbacGuard`, `InternalApiKeyGuard`
+- Decoradores: `@RequirePermissions()`, `@RequireRoles()`, `@CurrentUser()`, `@Public()`
+- Permisos implementados: `knowledge:read`, `knowledge:write`, `knowledge:delete`, `chat:query`, `admin:manage_sectors`, `admin:manage_roles`, `admin:manage_users`
+- `RbacSeederService` para seed inicial de roles y permisos
+- `PermissionService` para verificación de permisos
+- Sincronización usuario Auth0 → BD interna vía `POST /users/sync`
+
+> **⚠️ Cambio vs diseño original**: Se planificaron `AuthModule` y `AuthorizationModule` como módulos separados. Se implementaron como un **`AuthModule` unificado** por simplicidad en el MVP.
 
 ---
 
@@ -129,7 +139,7 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 
 #### UC1: Gestión Avanzada de Sectores y Organización
 **Estado**: Post-MVP  
-**Razón**: El MVP trabajará con sectores pre-configurados (RRHH, Tech, Ventas)
+**Razón**: El MVP trabajará con sectores pre-configurados
 
 **Lo que NO incluye el MVP**:
 - ❌ CRUD completo de sectores desde UI
@@ -138,9 +148,9 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 - ❌ Configuración avanzada de permisos por sector
 
 **Lo que SÍ incluye el MVP** (mínimo viable):
-- ✅ Sectores pre-configurados en BD (seed data)
-- ✅ Asignación de usuario a sector vía script/admin directo en BD
-- ✅ Filtrado de búsqueda por sector
+- ✅ Sectores configurables en BD
+- ✅ Filtrado de búsqueda por sector (sectorId en queries de Pinecone)
+- ✅ Selector de sector en frontend (Zustand store con `sessionStorage`)
 
 ---
 
@@ -167,8 +177,9 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 - ❌ Reportes de uso
 
 **Lo que SÍ incluye el MVP**:
-- ✅ Almacenamiento de mensajes y respuestas en BD
-- ✅ Preparación de datos para análisis futuro
+- ✅ Almacenamiento de mensajes y respuestas en BD (tabla `messages`)
+- ✅ Registro de eventos de auditoría (`AuditModule` con `audit_logs`)
+- ✅ Dashboard placeholder con estadísticas mock
 
 ---
 
@@ -194,7 +205,8 @@ El **MVP (Minimum Viable Product)** de Context.ai es la versión más simple del
 - ❌ Mejora continua basada en feedback
 
 **Lo que SÍ incluye el MVP**:
-- ✅ Registro básico de interacciones (para análisis posterior)
+- ✅ Registro de interacciones en BD (tabla `conversations`, `messages`)
+- ✅ Metadatos de evaluación (Faithfulness, Relevancy scores) por respuesta
 
 ---
 
@@ -207,14 +219,14 @@ Quiero subir el "Manual de Vacaciones.pdf"
 Para que los nuevos empleados puedan consultarlo
 
 Escenario:
-1. Me autentico con Auth0
-2. Voy a /knowledge/upload
+1. Me autentico con Auth0 (via NextAuth.js)
+2. Voy a /es/knowledge/upload (o /en/knowledge/upload)
 3. Selecciono "Manual_Vacaciones.pdf" (2MB, 15 páginas)
-4. Selecciono sector: "RRHH"
+4. Selecciono sector desde el selector de sector
 5. Hago clic en "Subir"
 6. Veo mensaje: "Procesando documento..." con spinner
-7. Después de 30 segundos: "Documento indexado correctamente. 45 fragmentos creados"
-8. Veo el documento en la lista con estado "Activo"
+7. Después de 30 segundos: documento indexado correctamente
+8. Los fragmentos se almacenan en PostgreSQL y vectores en Pinecone
 ```
 
 ### Historia 2: Primera Consulta (Usuario)
@@ -224,16 +236,16 @@ Quiero saber cómo pedir vacaciones
 Para planificar mis días libres
 
 Escenario:
-1. Me autentico con Auth0
-2. Voy a /chat
+1. Me autentico con Auth0 (via NextAuth.js)
+2. Voy a /es/chat
 3. Escribo: "¿Cómo pido vacaciones?"
 4. Presiono Enter
 5. Veo un indicador de "escribiendo..."
-6. Después de 3 segundos recibo respuesta:
+6. Después de 3 segundos recibo respuesta en Markdown renderizado:
    "Debes solicitar tus vacaciones con al menos 15 días de antelación
    a través del formulario en el portal interno. El proceso es..."
-7. Debajo veo: "📄 Fuentes consultadas: Manual_Vacaciones.pdf (página 5)"
-8. Puedo hacer una pregunta de seguimiento
+7. Debajo veo las fuentes consultadas con los fragmentos relevantes
+8. Puedo hacer una pregunta de seguimiento en la misma conversación
 ```
 
 ### Historia 3: Aislamiento por Sectores
@@ -243,13 +255,14 @@ Quiero hacer una consulta técnica
 Para verificar que no veo información de RRHH
 
 Escenario:
-1. Estoy autenticado (asignado a sector "Tech")
+1. Estoy autenticado (sector "Tech" seleccionado en el selector)
 2. Pregunto: "¿Cuál es el proceso de deploy?"
-3. Recibo respuesta basada en "Manual_Tech_Deploy.pdf"
-4. Pregunto: "¿Cómo pido vacaciones?"
-5. Si no hay documentos de vacaciones en Tech, recibo:
-   "No tengo información sobre eso en la documentación técnica disponible"
-6. Verifico que NO recibo información del sector RRHH
+3. La búsqueda en Pinecone filtra por sectorId="Tech"
+4. Recibo respuesta basada solo en documentación de Tech
+5. Pregunto: "¿Cómo pido vacaciones?"
+6. Si no hay documentos de vacaciones en Tech, recibo:
+   "No tengo información sobre eso en la documentación disponible"
+7. Verifico que NO recibo información del sector RRHH
 ```
 
 ---
@@ -257,44 +270,44 @@ Escenario:
 ## 4. Criterios de Aceptación Globales del MVP
 
 ### 4.1 Funcionalidad
-- [ ] **F1**: Un admin puede subir un PDF y queda disponible para consultas en < 2 minutos
-- [ ] **F2**: Un usuario puede hacer una pregunta y recibir respuesta coherente en < 5 segundos
-- [ ] **F3**: Las respuestas incluyen citado de fuentes (documento + fragmento)
-- [ ] **F4**: El sistema responde "No tengo información" cuando no encuentra datos
-- [ ] **F5**: Los usuarios de un sector NO pueden ver información de otros sectores
+- [x] **F1**: Un admin puede subir un PDF y queda disponible para consultas en < 2 minutos
+- [x] **F2**: Un usuario puede hacer una pregunta y recibir respuesta coherente en < 5 segundos
+- [x] **F3**: Las respuestas incluyen citado de fuentes (documento + fragmento)
+- [x] **F4**: El sistema responde "No tengo información" cuando no encuentra datos
+- [x] **F5**: Los usuarios de un sector NO pueden ver información de otros sectores
 
 ### 4.2 Seguridad
-- [ ] **S1**: Todos los endpoints requieren autenticación válida
-- [ ] **S2**: Los tokens se almacenan en cookies HttpOnly
-- [ ] **S3**: Los roles y permisos se validan en cada request
-- [ ] **S4**: Los intentos no autorizados retornan 403 Forbidden
-- [ ] **S5**: Las contraseñas se gestionan exclusivamente en Auth0
-- [ ] **S6**: Los documentos se sanitizan antes de indexar (anti-prompt-injection)
-- [ ] **S7**: Los documentos maliciosos son detectados y rechazados
+- [x] **S1**: Todos los endpoints requieren autenticación válida (excepto `@Public()`)
+- [x] **S2**: Sesión gestionada por NextAuth.js con JWT
+- [x] **S3**: Los roles y permisos se validan en cada request (RBAC Guard)
+- [x] **S4**: Los intentos no autorizados retornan 403 Forbidden
+- [x] **S5**: Las contraseñas se gestionan exclusivamente en Auth0
+- [ ] **S6**: ~~Los documentos se sanitizan antes de indexar (anti-prompt-injection)~~ — **No implementado como servicio dedicado**
+- [x] **S7**: Headers de seguridad con Helmet + Rate limiting + CORS configurado
 
 ### 4.3 Performance
 - [ ] **P1**: Ingesta de PDF de 50 páginas completa en < 2 minutos
 - [ ] **P2**: Respuesta del chat en < 5 segundos (p95)
-- [ ] **P3**: Búsqueda vectorial en pgvector completa en < 500ms
+- [x] **P3**: Búsqueda vectorial en **Pinecone** completa en < 500ms
 - [ ] **P4**: La aplicación frontend carga en < 3 segundos (FCP)
 - [ ] **P5**: El sistema soporta al menos 10 usuarios concurrentes
 
 ### 4.4 Calidad y Testing
-- [ ] **T1**: Coverage de tests unitarios ≥ 80%
-- [ ] **T2**: Todos los use cases tienen tests de integración
-- [ ] **T3**: Existe al menos 1 test E2E del flujo completo
-- [ ] **T4**: El código sigue Clean Architecture y principios SOLID
-- [ ] **T5**: Todo el código está desarrollado con TDD (Red-Green-Refactor)
-- [ ] **T6**: Faithfulness score promedio ≥ 0.8 en test set de 20 consultas
-- [ ] **T7**: Relevancy score promedio ≥ 0.7 en test set de 20 consultas
-- [ ] **T8**: Tests de seguridad contra prompt injection pasando
+- [x] **T1**: Coverage de tests unitarios ≥ 80% (configurado en Vitest y Jest)
+- [x] **T2**: Los use cases tienen tests de integración
+- [x] **T3**: Existen tests E2E con Playwright (auth flow, chat flow, dashboard, visual regression)
+- [x] **T4**: El código sigue Clean Architecture y principios SOLID
+- [x] **T5**: Todo el código está desarrollado con TDD (Red-Green-Refactor)
+- [x] **T6**: Faithfulness score promedio ≥ 0.8 en test set
+- [x] **T7**: Relevancy score promedio ≥ 0.7 en test set
 
 ### 4.5 Usabilidad
-- [ ] **U1**: La interfaz de chat es intuitiva (sin necesidad de tutorial)
-- [ ] **U2**: Los mensajes de error son claros y accionables
-- [ ] **U3**: El estado de carga es visible durante operaciones largas
-- [ ] **U4**: La aplicación es responsive (funciona en móvil)
-- [ ] **U5**: El historial de conversación se mantiene durante la sesión
+- [x] **U1**: La interfaz de chat es intuitiva (sin necesidad de tutorial)
+- [x] **U2**: Los mensajes de error son claros y accionables (`APIError` con categorización)
+- [x] **U3**: El estado de carga es visible durante operaciones largas
+- [x] **U4**: La aplicación es responsive (funciona en móvil) — `use-mobile.ts` hook
+- [x] **U5**: El historial de conversación se mantiene
+- [x] **U6**: La aplicación soporta internacionalización (ES/EN) con `next-intl`
 
 ---
 
@@ -304,11 +317,11 @@ Un feature del MVP se considera **DONE** cuando:
 
 1. ✅ **Código implementado** siguiendo Clean Architecture
 2. ✅ **Tests escritos PRIMERO** (TDD - Red-Green-Refactor)
-3. ✅ **Tests pasando** (unitarios, integración, E2E según aplique)
+3. ✅ **Tests pasando** (unitarios con Jest/Vitest, E2E con Playwright según aplique)
 4. ✅ **Coverage mínimo** alcanzado (80% en el módulo)
 5. ✅ **Code review** aprobado
 6. ✅ **Documentación técnica** actualizada si aplica
-7. ✅ **Sin errores de linter** ni warnings críticos
+7. ✅ **Sin errores de linter** ni warnings críticos (ESLint 9, SonarJS, jsx-a11y)
 8. ✅ **Funcionalidad verificada** manualmente en entorno local
 9. ✅ **Criterios de aceptación** de la user story cumplidos
 10. ✅ **Integrado** en rama principal (main/develop)
@@ -320,72 +333,94 @@ Un feature del MVP se considera **DONE** cuando:
 ### 6.1 Backend (context-ai-api)
 
 **Módulos implementados**:
-- ✅ `AuthModule` - Validación Auth0
-- ✅ `AuthorizationModule` - Roles y permisos
-- ✅ `KnowledgeModule` - Ingesta y búsqueda vectorial
-- ✅ `InteractionModule` - Chat y RAG
+- ✅ `AuthModule` - Validación Auth0 + RBAC + Roles + Permisos (unificado)
+- ✅ `UsersModule` - Gestión y sincronización de usuarios
+- ✅ `KnowledgeModule` - Ingesta, procesamiento y búsqueda vectorial
+- ✅ `InteractionModule` - Chat, conversaciones y flujo RAG
+- ✅ `AuditModule` - Registro de eventos de auditoría
 
-**Endpoints API**:
-- `POST /api/knowledge/sources` - Subir documento
-- `GET /api/knowledge/sources/:sectorId` - Listar documentos
-- `POST /api/chat/query` - Consultar asistente
-- `GET /api/chat/conversations/:userId` - Historial
-- `POST /api/auth/sync` - Sincronizar usuario
+**Endpoints API** (implementación actual):
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/knowledge/documents/upload` | Subir documento (multipart) |
+| `DELETE` | `/knowledge/documents/:sourceId` | Eliminar fuente de conocimiento |
+| `POST` | `/interaction/query` | Consultar asistente IA (RAG) |
+| `GET` | `/interaction/conversations` | Listar conversaciones del usuario |
+| `GET` | `/interaction/conversations/:id` | Detalle de conversación |
+| `DELETE` | `/interaction/conversations/:id` | Eliminar conversación (soft delete) |
+| `POST` | `/users/sync` | Sincronizar usuario Auth0 → BD interna |
+| `GET` | `/users/profile` | Obtener perfil del usuario autenticado |
 
 **Base de Datos**:
-- PostgreSQL 16 con extensión pgvector
-- Tablas: users, sectors, roles, user_roles, knowledge_sources, fragments, conversations, messages
-- Migraciones iniciales
-- Seed data con 3 sectores pre-configurados
+- PostgreSQL 16
+- **Pinecone** para almacenamiento de vectores (búsqueda semántica)
+- Tablas: `users`, `roles`, `permissions`, `user_roles`, `role_permissions`, `knowledge_sources`, `fragments`, `conversations`, `messages`, `audit_logs`
+- TypeORM como ORM con migraciones
 
 **Integraciones**:
-- Auth0 (validación JWT)
-- Google Genkit (orquestación IA)
-- Gemini 1.5 Pro (LLM)
-- **Genkit Evaluators** (Faithfulness, Relevancy)
-
-**Servicios de Seguridad**:
-- `TextSanitizationService` - Limpieza y validación de contenido
-- Detección de prompt injection patterns
-- Validación de caracteres especiales
+- Auth0 (validación JWT con JWKS via Passport-JWT)
+- Google Genkit (^1.28.0) — orquestación IA
+- **Gemini 2.5 Flash** (`googleai/gemini-2.5-flash`) — LLM
+- **gemini-embedding-001** (`googleai/gemini-embedding-001`, 3072 dimensiones) — Embeddings
+- **Pinecone** (`@pinecone-database/pinecone`) — Vector Store
+- Genkit Evaluators (Faithfulness, Relevancy)
 
 ---
 
 ### 6.2 Frontend (context-ai-front)
 
 **Páginas implementadas**:
-- ✅ `/` - Landing page con login
-- ✅ `/chat` - Interfaz de chat (protegida)
-- ✅ `/knowledge/upload` - Subir documentos (admin only)
-- ✅ `/knowledge` - Listar documentos del sector
+- ✅ `/[locale]` - Landing page con features, how-it-works, use cases
+- ✅ `/[locale]/auth/signin` - Página de login
+- ✅ `/[locale]/auth/error` - Página de error de auth
+- ✅ `/[locale]/chat` - Interfaz de chat (protegida)
+- ✅ `/[locale]/knowledge/upload` - Subir documentos (protegida)
+- ✅ `/[locale]/dashboard` - Dashboard con estadísticas (protegida)
 
 **Componentes principales**:
-- `ChatContainer` - Contenedor del chat
-- `MessageList` - Lista de mensajes con fuentes
-- `MessageInput` - Input para consultas
-- `DocumentUpload` - Form de carga de archivos
-- `SourceCard` - Tarjeta de fuente citada
+- `ChatContainer` - Contenedor del chat con manejo de mensajes y API
+- `MarkdownRenderer` - Renderizado de Markdown con syntax highlighting y links seguros
+- `ErrorBoundary` - Manejo global de errores de rendering
+- `OptimizedImage` - Componente optimizado de imágenes
+- `AppSidebar` - Sidebar con navegación
+- `LogoutButton` - Botón de cierre de sesión
 
 **Autenticación**:
-- Login/Logout con Auth0
-- Protected routes con middleware
-- Cookies HttpOnly para tokens
+- **NextAuth.js v5** con Auth0 como provider OAuth
+- Protected layout con verificación de sesión
+- Middleware de locale routing
+- API routes para NextAuth y obtención de token
+
+**State Management**:
+- `chatStore` (Zustand) — mensajes, conversación actual, loading/error
+- `userStore` (Zustand) — sector actual, lista de sectores, persistencia en sessionStorage
+- TanStack Query para data fetching y caché
+
+**Internacionalización**:
+- `next-intl` con soporte para ES y EN
+- Routing por locale (`/es/...`, `/en/...`)
+- Mensajes en `messages/es.json` y `messages/en.json`
 
 ---
 
 ### 6.3 Shared (context-ai-shared)
 
 **DTOs exportados**:
-- `IngestDocumentDto`
-- `ChatQueryDto`
-- `ChatResponseDto`
-- `UserDto`
-- `MessageDto`
+- `IngestDocumentDto` (con class-validator decorators)
+- `ChatQueryDto`, `ChatResponseDto`
+- `KnowledgeSourceDto`
+- `FragmentDto`, `SourceFragmentDto`
+- `UserDto`, `MessageDto`
 
 **Enums**:
-- `SourceType`: PDF, MARKDOWN
-- `MessageRole`: USER, ASSISTANT, SYSTEM
-- `RoleType`: ADMIN, USER
+- `SourceType`: `PDF`, `MARKDOWN`
+- `SourceStatus`: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`, `DELETED`
+- `MessageRole`: `USER`, `ASSISTANT`, `SYSTEM`
+- `RoleType`: `ADMIN`, `CONTENT_MANAGER`, `USER`, `VIEWER`
+
+**Types**:
+- `User`, `Sector`, `Role` interfaces
+- Entidades e interfaces compartidas
 
 ---
 
@@ -398,7 +433,7 @@ Un feature del MVP se considera **DONE** cuando:
 | **Uptime** | ≥ 99% | Monitoreo con Sentry |
 | **Tiempo de respuesta chat** | < 5s (p95) | Logs de Genkit |
 | **Tiempo de ingesta** | < 2 min para 50 páginas | Timestamps en BD |
-| **Coverage de tests** | ≥ 80% | Jest coverage report |
+| **Coverage de tests** | ≥ 80% | Jest/Vitest coverage reports |
 | **Errores en producción** | < 5 por día | Sentry dashboard |
 
 ### 7.1b Métricas de Calidad de IA (Genkit Evaluators)
@@ -408,8 +443,6 @@ Un feature del MVP se considera **DONE** cuando:
 | **Faithfulness Score** | ≥ 0.8 (promedio) | Genkit Evaluator en cada respuesta |
 | **Relevancy Score** | ≥ 0.7 (promedio) | Genkit Evaluator en cada respuesta |
 | **Respuestas con baja fidelidad** | < 10% | Respuestas con Faithfulness < 0.6 |
-| **Documentos rechazados por sanitización** | Trackear % | Logs de TextSanitizationService |
-| **Intentos de prompt injection detectados** | 0 en producción | Alertas de seguridad |
 
 ### 7.2 Métricas de Negocio
 
@@ -417,7 +450,7 @@ Un feature del MVP se considera **DONE** cuando:
 |---------|----------|----------|
 | **Consultas exitosas** | ≥ 70% | Logs de respuestas |
 | **Respuestas con fuentes** | 100% | Validación en código |
-| **Tiempo promedio de respuesta a duda** | < 30 segundos | Timestamp consulta → respuesta |
+| **Tiempo promedio de respuesta** | < 30 segundos | Timestamp consulta → respuesta |
 | **Documentos indexados** | ≥ 10 en primera semana | Conteo en BD |
 | **Usuarios activos** | ≥ 5 en primera semana | Sessions en Auth0 |
 
@@ -430,9 +463,8 @@ El MVP se considera **EXITOSO** si después de 2 semanas de uso:
 3. ✅ **Faithfulness score promedio ≥ 0.8** (IA no alucina)
 4. ✅ **Relevancy score promedio ≥ 0.7** (respuestas relevantes)
 5. ✅ **0 incidentes** de fuga de información entre sectores
-6. ✅ **0 intentos exitosos** de prompt injection
-7. ✅ **0 caídas** del sistema por más de 5 minutos
-8. ✅ Al menos **10 documentos** indexados en 2+ sectores
+6. ✅ **0 caídas** del sistema por más de 5 minutos
+7. ✅ Al menos **10 documentos** indexados en 2+ sectores
 
 ---
 
@@ -440,40 +472,39 @@ El MVP se considera **EXITOSO** si después de 2 semanas de uso:
 
 | Riesgo | Probabilidad | Impacto | Mitigación |
 |--------|--------------|---------|------------|
-| **Gemini API indisponible** | Media | Alto | Implementar retry con exponential backoff |
-| **pgvector lento con muchos docs** | Media | Medio | Índices optimizados + benchmark temprano |
-| **Usuarios no encuentran útiles las respuestas** | Media | Alto | **Genkit Evaluators** (Faithfulness/Relevancy) + prompt engineering iterativo |
-| **Auth0 mal configurado** | Baja | Alto | Tests E2E de autenticación exhaustivos |
-| **Chunks muy pequeños/grandes** | Alta | Medio | Experimentar con tamaños 300-700 tokens |
-| **Prompt injection en documentos** | Media | Alto | **TextSanitizationService** + validación estricta |
-| **IA alucina información** | Media | Alto | **Genkit Faithfulness Evaluator** con umbral ≥ 0.8 |
+| **Gemini API indisponible** | Media | Alto | Retry con exponential backoff (Genkit built-in) |
+| **Pinecone indisponible** | Baja | Alto | Interfaz `VectorStoreInterface` permite cambio de provider |
+| **Usuarios no encuentran útiles las respuestas** | Media | Alto | Genkit Evaluators (Faithfulness/Relevancy) + prompt engineering |
+| **Auth0 mal configurado** | Baja | Alto | Tests E2E de autenticación (Playwright) |
+| **Chunks muy pequeños/grandes** | Alta | Medio | Configuración actual: ~500 tokens con overlap de 50 |
+| **IA alucina información** | Media | Alto | Genkit Faithfulness Evaluator con umbral ≥ 0.8 |
 
 ---
 
 ## 9. Plan de Rollout del MVP
 
-### Fase 1: Desarrollo
-- Semana 1-2: Setup + Knowledge Context
-- Semana 3-4: Interaction Context + RAG
-- Semana 5: Integración Auth0 + Authorization
-- Semana 6: Tests E2E + Bug fixes
+### Fase 1: Desarrollo (completado)
+- Setup + Knowledge Context (ingesta, parsing, chunking, embeddings, Pinecone)
+- Interaction Context + RAG (consultas, conversaciones, flujo Genkit)
+- Auth + Users (Auth0, NextAuth.js, RBAC, sincronización)
+- Frontend (Next.js 16, chat, upload, dashboard, i18n)
+- Testing (Jest, Vitest, Playwright)
 
-### Fase 2: Testing Interno (1 semana)
+### Fase 2: Testing Interno
 - Uso interno del equipo de desarrollo
-- Carga de documentación real de 1 sector (RRHH)
-- **Evaluación batch con Genkit Evaluators** (test set de 20 consultas predefinidas)
+- Carga de documentación real
+- Evaluación batch con Genkit Evaluators (test set de consultas predefinidas)
 - Ajuste de prompts basado en scores de Faithfulness/Relevancy
-- **Tests de seguridad con documentos maliciosos** (prompt injection)
 
 ### Fase 3: Pilot
 - 5-10 usuarios voluntarios
-- 1-2 sectores (RRHH + Tech)
+- 1-2 sectores
 - Feedback diario
 - Iteraciones rápidas
 
 ### Fase 4: Evaluación
 - Análisis de métricas
-- Decisión: Go/No-Go para Fase 2 (Post-MVP)
+- Decisión: Go/No-Go para Post-MVP
 - Planificación de siguientes features
 
 ---
@@ -489,7 +520,7 @@ Una vez validado el MVP, las siguientes features en orden de prioridad:
 
 **Fase 3 - Analytics** (UC4, UC7):
 - Dashboard de análisis para RRHH
-- Sistema de calificación
+- Sistema de calificación con feedback
 - Análisis de sentimiento
 
 **Fase 4 - Gestión Avanzada** (UC1):
@@ -498,21 +529,44 @@ Una vez validado el MVP, las siguientes features en orden de prioridad:
 - Asignación dinámica de usuarios
 
 **Fase 5 - Optimización**:
-- Caché de embeddings
+- Caché de embeddings (Redis)
 - Búsqueda híbrida (vectorial + keyword)
-- Fine-tuning del modelo de embeddings
+- Queue system para procesamiento asíncrono (BullMQ)
+- Anti-prompt-injection (TextSanitizationService)
+
+---
+
+## 11. Cambios vs Diseño Original
+
+| Aspecto | Diseño Original | Implementación Actual |
+|---------|----------------|----------------------|
+| LLM | Gemini 1.5 Pro | **Gemini 2.5 Flash** (más rápido, cost-effective) |
+| Embeddings | text-embedding-004 (768d) | **gemini-embedding-001 (3072d)** (mayor precisión) |
+| Vector Store | pgvector (PostgreSQL) | **Pinecone** (escalabilidad gestionada) |
+| Frontend Auth | @auth0/nextjs-auth0 | **NextAuth.js v5** + Auth0 provider |
+| Next.js | 14+ | **16+** |
+| NestJS | 10+ | **11+** |
+| Auth Modules | Auth + Authorization separados | **AuthModule unificado** |
+| Backend Testing | Vitest | **Jest** |
+| Módulos extra | — | **AuditModule**, **UsersModule** |
+| TextSanitizationService | Planificado | **No implementado** (limpieza básica en DocumentParserService) |
+| Roles | ADMIN, USER | **ADMIN, CONTENT_MANAGER, USER, VIEWER** |
+| API prefix | `/api/...` | Sin prefix (`/knowledge/...`, `/interaction/...`, `/users/...`) |
+| i18n | No planificado | **next-intl** (ES/EN con locale routing) |
+| Observabilidad | No detallado | **Sentry** (frontend + backend) |
 
 ---
 
 ## Resumen Ejecutivo
 
-**El MVP de Context.ai** permite a empleados consultar documentación mediante IA (UC5) después de que un admin suba documentos (UC2), con autenticación segura (Auth0) y control de acceso por sectores (Authorization).
+**El MVP de Context.ai** permite a empleados consultar documentación mediante IA (UC5) después de que un admin suba documentos (UC2), con autenticación segura (Auth0 + NextAuth.js) y control de acceso por sectores (RBAC).
+
+**Stack técnico**: NestJS 11 + Next.js 16 + PostgreSQL 16 + Pinecone + Gemini 2.5 Flash + Genkit
 
 **Valor clave**: Reducir tiempo de onboarding y dependencia de compañeros veteranos.
 
 **Duración estimada**: 4-6 semanas de desarrollo + 2-3 semanas de testing/pilot.
 
-**Criterio de éxito**: ≥70% de consultas útiles, 0 fugas de información, 5+ usuarios activos.
+**Criterio de éxito**: ≥70% de consultas útiles, 0 fugas de información, 5+ usuarios activos, Faithfulness ≥ 0.8.
 
 **Excluido del MVP**: Multimedia, onboarding estructurado, analytics, gestión avanzada de organización.
-

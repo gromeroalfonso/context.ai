@@ -82,6 +82,6 @@ sequenceDiagram
 
 3. **Búsqueda Vectorial (RAG)**: Se realiza una consulta semántica en pgvector filtrando por el `sector_id`. Esto asegura que la IA no "alucine" con información de otros departamentos.
 
-4. **Generación con Modelo**: Gemini 1.5 Pro recibe el contexto recuperado. Gracias a su amplia ventana de contexto, puede procesar múltiples fragmentos para dar una respuesta precisa.
+4. **Generación con Modelo**: Gemini 2.5 Flash recibe el contexto recuperado. Gracias a su amplia ventana de contexto, puede procesar múltiples fragmentos para dar una respuesta precisa.
 
 5. **Cierre de Ciclo**: El mensaje se guarda en la base de datos relacional junto con un análisis de sentimiento inicial, preparando los datos para el Dashboard de Calidad.
